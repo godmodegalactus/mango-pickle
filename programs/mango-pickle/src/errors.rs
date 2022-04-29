@@ -9,9 +9,3 @@ pub enum PickleError {
     #[msg("Invalid mint (must currespond to mango token mint)")]
     InvalidMint,
 }
-
-// From<mango::error::MangoError> for PickleError {
-//     fn from(_error : mango::error::MangoError) -> Self {
-//         return PickleError::MangoError;
-//     }
-// }

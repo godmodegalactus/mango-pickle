@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use std::{mem::size_of};
-use anchor_lang::solana_program::program_pack::Pack;
+use anchor_spl::*;
 
 mod instructions;
 use instructions::*;
@@ -36,6 +36,8 @@ pub mod mango_pickle {
             },
             Err(_) =>  Err(error!(PickleError::MangoError))
         }?;
+
+        // to count and copy number of mango tokens
         let mut token_counts : usize = 0;
         for i in 0..mango_group.tokens.len() {
             let token = mango_group.tokens[i];
@@ -53,12 +55,11 @@ pub mod mango_pickle {
         }
 
         for i in (0..ctx.remaining_accounts.len()).step_by(2) {
-            let mint_ai = &ctx.remaining_accounts[i];
-            if pickle_group.tokens[i/2].mint != mint_ai.key() {
-                return Err(error!(PickleError::InvalidMint))
+            let mint = token::accessor::mint(&ctx.remaining_accounts[i])?;
+            if mint != pickle_group.tokens[i].mint {
+                return Err(error!(PickleError::InvalidMint));
             }
-            let mint = spl_token::state::Mint::unpack_from_slice(&mint_ai.try_borrow_data()?)?;
-            pickle_group.token_pools[i] = ctx.remaining_accounts[i + 1].key();
+            pickle_group.token_pools[i] = ctx.remaining_accounts[i].key();
         }
         Ok(())
     }

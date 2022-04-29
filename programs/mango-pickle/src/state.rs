@@ -1,7 +1,5 @@
 use crate::*;
 
-const MAX_TOKENS : usize = 16;
-
 #[derive(AnchorSerialize, AnchorDeserialize, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum DataType {
