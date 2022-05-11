@@ -52,3 +52,19 @@ pub struct PickleGroup {
     pub token_pools: [Pubkey; 16],
     padding : [u8; 256],
 }
+
+
+#[account(zero_copy)]
+pub struct PickleUser {
+    pub meta_data: MetaData,
+    // Pickle group
+    pub pickle_group_pk: Pubkey,
+    // owner
+    pub owner_pk: Pubkey,
+    // associated mango account
+    pub mango_account_pk: Pubkey,
+    
+    pub tokens_locked_for_liquidation: [I48F80; 16],
+
+    pub solana_locked_for_liquidation: u64,
+} 

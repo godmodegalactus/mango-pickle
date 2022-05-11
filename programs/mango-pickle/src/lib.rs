@@ -50,7 +50,7 @@ pub mod mango_pickle {
             }
         }
 
-        if ctx.remaining_accounts.len() != token_counts * 2 {
+        if ctx.remaining_accounts.len() != token_counts {
             return Err(error!(PickleError::TokenPoolsMissing));
         }
 
