@@ -56,8 +56,8 @@ export interface Ema {
     numerator?: bigint;
     denominator?: bigint;
 }
-const writer = anchor.workspace.WriterUtils;
-export class Pyth {
+const writer_programId: PublicKey = new PublicKey("37kmCqYKw41NJxMFVDT5HanZGhwKBQTQJD5hfiYBML7Z");
+export class PythUtils {
 
     conn: Connection;
     authority: Keypair;
@@ -72,7 +72,7 @@ export class Pyth {
                 newAccountPubkey: address.publicKey,
                 lamports,
                 space: size,
-                programId: writer.programId,
+                programId: writer_programId,
             }))
 
         transaction.feePayer = this.authority.publicKey;
@@ -89,21 +89,31 @@ export class Pyth {
     }
 
     async store(account: Keypair, offset: number, input: Buffer) {
-        const writeInstr = writer.instruction.write(
-            new anchor.BN(offset),
-            input,
-            {
-                accounts: { target: account.publicKey },
+        const inx = Buffer.from([235, 116, 91, 200, 206, 170, 144, 120]);
+        let keys = [
+            { isSigner: true, isWritable: true, pubkey: account.publicKey },
+        ];
+        let offsetBN = new anchor.BN(offset); 
+        const data = Buffer.concat([inx, offsetBN.toBuffer("le"), input]);
+        
+        const transaction = new anchor.web3.Transaction().add(
+            new anchor.web3.TransactionInstruction({
+                keys,
+                programId: writer_programId,
+                data
             }
+            ),
         );
-        const writeTx = new Transaction({
-            feePayer: this.authority.publicKey,
-        }).add(writeInstr);
-
-        await sendAndConfirmTransaction(this.conn, writeTx, [
-            account,
-            this.authority,
-        ]);
+        transaction.feePayer = this.authority.publicKey;
+        let hash = await this.conn.getRecentBlockhash();
+        transaction.recentBlockhash = hash.blockhash;
+        // Sign transaction, broadcast, and confirm
+        const signature = await anchor.web3.sendAndConfirmTransaction(
+            this.conn,
+            transaction,
+            [this.authority],
+            { commitment: 'confirmed' },
+        );
     }
 
     constructor(conn: Connection, authority: Keypair) {

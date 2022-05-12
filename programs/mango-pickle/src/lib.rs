@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use std::{mem::size_of};
 use anchor_spl::*;
+use fixed::types::I48F80;
 
 mod instructions;
 use instructions::*;

@@ -26,16 +26,14 @@ export class TestUtils {
     public pyth: Pyth;
 
     private conn: Connection;
-    private wallet: Wallet;
     private authority: Keypair;
 
     private recentBlockhash: string;
 
-    constructor(conn: Connection, funded: Wallet) {
+    constructor(conn: Connection, authority: Keypair) {
         this.conn = conn;
-        this.wallet = funded;
-        this.authority = this.wallet.payer;
-        this.pyth = new Pyth(conn, funded);
+        this.authority = authority;
+        this.pyth = new Pyth(conn, authority);
     }
 
     async createAccount( owner : Keypair, pid : PublicKey, space: number): Promise<Keypair> {
@@ -64,7 +62,7 @@ export class TestUtils {
     }
 
     payer(): Keypair {
-        return this.wallet.payer;
+        return this.authority;
     }
 
     connection(): Connection {
@@ -73,7 +71,7 @@ export class TestUtils {
 
     transaction(): Transaction {
         return new Transaction({
-            feePayer: this.wallet.payer.publicKey,
+            feePayer: this.authority.publicKey,
             recentBlockhash: this.recentBlockhash,
         });
     }
@@ -109,7 +107,7 @@ export class TestUtils {
         const wallet = Keypair.generate();
         const fundTx = new Transaction().add(
             SystemProgram.transfer({
-                fromPubkey: this.wallet.publicKey,
+                fromPubkey: this.authority.publicKey,
                 toPubkey: wallet.publicKey,
                 lamports,
             })
@@ -165,7 +163,7 @@ export class TestUtils {
         const transaction = this.transaction().add(
             SystemProgram.createAccount(
                 toPublicKeys({
-                    fromPubkey: this.wallet.payer,
+                    fromPubkey: this.authority,
                     newAccountPubkey: newAccount,
                     lamports: lamportBalanceNeeded,
                     space: TokenAccountLayout.span,
@@ -209,7 +207,7 @@ export class TestUtils {
         return await sendAndConfirmTransaction(
             this.conn,
             transaction,
-            signers.concat(this.wallet.payer)
+            signers.concat(this.authority)
         );
     }
 

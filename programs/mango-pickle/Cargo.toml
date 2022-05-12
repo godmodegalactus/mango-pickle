@@ -26,3 +26,5 @@ spl-token = { version = "3.1.1", features = ["no-entrypoint"] }
 mango = {path= "../../../mango-v3/program", features=["no-entrypoint"]}
 mango-macro = { path = "../../../mango-v3/mango-macro" }
 mango-common = { path = "../../../mango-v3/common" }
+fixed = { version = ">=1.11.0, <1.12.0", features = ["serde"] }
+fixed-macro = "^1.1.1"

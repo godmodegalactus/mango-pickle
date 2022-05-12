@@ -21,7 +21,7 @@ import {
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import {SerumUtils, DEX_ID,} from "./serum";
-import {Pyth} from "./pyth";
+import {PythUtils} from "./pyth";
 
 const bs58 = require("bs58");
 const dex_program = DEX_ID;
@@ -41,37 +41,39 @@ export interface User {
     spotOrders : PublicKey[];
 }
 
-export class MangoUitls {
+export interface MangoContext {
+    mangoGroup : PublicKey;
+    signerKey: PublicKey;
+    mangoCache : PublicKey;
+    usdcRootBank: PublicKey;
+    usdcNodeBank: PublicKey;
+    tokens : Array<TokenData>;
+    quoteToken :TokenData;
+    MSRM : Token;
+    users : Array<User>
+}
+
+export class MangoUtils {
     connection : web3.Connection;
     authority : web3.Keypair;
 
     public static mango_programid = new web3.PublicKey("5vQp48Wx55Ft1PUAx8qWbsioNaLeXWVkyCq2XpQSv34M");
 
-    public tokens : Array<TokenData>;
-    public quoteToken :TokenData;
-    public MSRM : Token;
-
-    public mangoGroup : PublicKey;
-    signerKey: PublicKey;
-    mangoCache : PublicKey;
-    usdcRootBank: PublicKey;
-    usdcNodeBank: PublicKey;
-
     serumUtils : SerumUtils;
-    pythUtils : Pyth;
+    pythUtils : PythUtils;
     constructor (connection : web3.Connection, 
         authority : web3.Keypair,
         serumUtils : SerumUtils,
-        pythUtils : Pyth) {
+        pythUtils : PythUtils) {
         this.connection = connection;
         this.authority = authority;
         this.serumUtils = serumUtils;
         this.pythUtils = pythUtils;
     }
 
-    public async initialize() {
-        this.tokens = new Array<TokenData>()
-        this.quoteToken = { 
+    async initializeTokens(context: MangoContext) {
+        context.tokens = new Array<TokenData>()
+        context.quoteToken = { 
             token: await Token.createMint(
                     this.connection,
                     this.authority,
@@ -86,7 +88,7 @@ export class MangoUitls {
             starting_price : 1,
         }
 
-        this.MSRM = await Token.createMint(
+        context.MSRM = await Token.createMint(
             this.connection,
             this.authority,
             this.authority.publicKey,
@@ -95,7 +97,7 @@ export class MangoUitls {
             TOKEN_PROGRAM_ID);
     }
 
-    public async addNewToken() {
+    async addNewToken(context: MangoContext) {
         let tokenData : TokenData = { 
             token: await Token.createMint(
                     this.connection,
@@ -110,8 +112,8 @@ export class MangoUitls {
             marketIndex : new anchor.BN(0),
             starting_price : 1,
         };
-        await this.initSpotMarket(tokenData);
-        this.tokens.push(tokenData)
+        await this.initSpotMarket(context, tokenData);
+        context.tokens.push(tokenData)
 
     }
 
@@ -125,7 +127,7 @@ export class MangoUitls {
                 newAccountPubkey: address.publicKey,
                 lamports,
                 space: size,
-                programId: MangoUitls.mango_programid,
+                programId: MangoUtils.mango_programid,
             }))
 
         transaction.feePayer = this.authority.publicKey;
@@ -141,7 +143,7 @@ export class MangoUitls {
         return address.publicKey;
     }
 
-    public async initMangoGroup() : Promise<web3.PublicKey> {
+    public async createMangoContext() : Promise<MangoContext> {
 
         const size = mango_client.MangoGroupLayout.span;
         let group_address = await this.createAccountForMango( size);
@@ -150,24 +152,38 @@ export class MangoUitls {
         let mango_cache = await this.createAccountForMango(mango_client.MangoCacheLayout.span);
 
         const { signerKey, signerNonce } = await mango_client.createSignerKeyAndNonce(
-            MangoUitls.mango_programid,
+            MangoUtils.mango_programid,
             group_address,
           );
+        
+        let mangoContext: MangoContext = {
+            mangoGroup:null,
+            signerKey:null,
+            mangoCache:null,
+            usdcRootBank:null,
+            usdcNodeBank:null,
+            tokens:null,
+            quoteToken:null,
+            MSRM:null,
+            users:null,
+        };
 
-        //const [signer, nonce] = await web3.PublicKey.findProgramAddress([group_address.toBuffer()], MangoUitls.mango_programid);
-        let usdc_vault = await this.quoteToken.token.createAccount(signerKey);
-        let insurance_vault = await this.quoteToken.token.createAccount(signerKey);
-        let fee_vault = await this.quoteToken.token.createAccount(TOKEN_PROGRAM_ID);
-        let msrm_vault = await this.MSRM.createAccount(signerKey);
-        this.quoteToken.rootBank = root_bank_address;
-        this.quoteToken.nodeBank = node_bank_address;
+        await this.initializeTokens(mangoContext);
+
+        //const [signer, nonce] = await web3.PublicKey.findProgramAddress([group_address.toBuffer()], MangoUtils.mango_programid);
+        let usdc_vault = await mangoContext.quoteToken.token.createAccount(signerKey);
+        let insurance_vault = await mangoContext.quoteToken.token.createAccount(signerKey);
+        let fee_vault = await mangoContext.quoteToken.token.createAccount(TOKEN_PROGRAM_ID);
+        let msrm_vault = await mangoContext.MSRM.createAccount(signerKey);
+        mangoContext.quoteToken.rootBank = root_bank_address;
+        mangoContext.quoteToken.nodeBank = node_bank_address;
         
         let ix = mango_client.makeInitMangoGroupInstruction(
-            MangoUitls.mango_programid,
+            MangoUtils.mango_programid,
             group_address,
             signerKey,
             this.authority.publicKey,
-            this.quoteToken.token.publicKey,
+            mangoContext.quoteToken.token.publicKey,
             usdc_vault,
             node_bank_address,
             root_bank_address,
@@ -183,12 +199,12 @@ export class MangoUitls {
             mango_client.I80F48.fromNumber(1.5),
           );
 
-        let ixCacheRootBank = mango_client.makeCacheRootBankInstruction(MangoUitls.mango_programid,
+        let ixCacheRootBank = mango_client.makeCacheRootBankInstruction(MangoUtils.mango_programid,
             group_address,
             mango_cache,
             [root_bank_address]);
 
-        let ixupdateRootBank = mango_client.makeUpdateRootBankInstruction(MangoUitls.mango_programid,
+        let ixupdateRootBank = mango_client.makeUpdateRootBankInstruction(MangoUtils.mango_programid,
                 group_address,
                 mango_cache,
                 root_bank_address,
@@ -197,27 +213,14 @@ export class MangoUitls {
         await this.processInstruction(ix, [this.authority]);
         await this.processInstruction(ixCacheRootBank, [this.authority]);
         await this.processInstruction(ixupdateRootBank, [this.authority]);
-        // const transaction = new web3.Transaction();
-        // transaction.add(ix);
-        // transaction.add(ixCacheRootBank);
-        // transaction.add(ixupdateRootBank);
-        // transaction.feePayer = this.authority.publicKey;
-        // let hash = await this.connection.getRecentBlockhash();
-        // transaction.recentBlockhash = hash.blockhash;
-        // // Sign transaction, broadcast, and confirm
-        // const signature = await web3.sendAndConfirmTransaction(
-        //     this.connection,
-        //     transaction,
-        //     [this.authority],
-        //     { commitment: 'confirmed' },
-        // );
-        this.mangoGroup = group_address;
-        this.signerKey = signerKey;
-        this.mangoCache = mango_cache;
-        return group_address;
+
+        mangoContext.mangoGroup = group_address;
+        mangoContext.signerKey = signerKey;
+        mangoContext.mangoCache = mango_cache;
+        return mangoContext;
     }
 
-    async initSpotMarket(tokendata : TokenData) : Promise<PublicKey> {
+    async initSpotMarket(mangoContext: MangoContext, tokendata : TokenData) : Promise<PublicKey> {
         const token = tokendata.token;
         let oracle = await this.pythUtils.createPriceAccount();
         // temp update oracle price to initate pyth oracle
@@ -230,14 +233,14 @@ export class MangoUitls {
         });
         let market = await this.serumUtils.createMarket({
             baseToken : token,
-            quoteToken: this.quoteToken.token,
+            quoteToken: mangoContext.quoteToken.token,
             baseLotSize : 1000,
             quoteLotSize : 1000,
             feeRateBps : 0,
         });
         let root_bank_address = await this.createAccountForMango(mango_client.RootBankLayout.span);
         let node_bank_address = await this.createAccountForMango(mango_client.NodeBankLayout.span);
-        let vault = await token.createAccount(this.signerKey);
+        let vault = await token.createAccount(mangoContext.signerKey);
 
         tokendata.nodeBank = node_bank_address;
         tokendata.rootBank = root_bank_address;
@@ -246,8 +249,8 @@ export class MangoUitls {
         // add spot market to mango
         {
             let add_oracle_ix = mango_client.makeAddOracleInstruction(
-                MangoUitls.mango_programid,
-                this.mangoGroup,
+                MangoUtils.mango_programid,
+                mangoContext.mangoGroup,
                 oracle.publicKey,
                 this.authority.publicKey,
             );
@@ -265,8 +268,8 @@ export class MangoUitls {
             );
         }
         let add_spot_ix = mango_client.makeAddSpotMarketInstruction(
-            MangoUitls.mango_programid,
-            this.mangoGroup,
+            MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
             oracle.publicKey,
             market.address,
             DEX_ID,
@@ -283,14 +286,14 @@ export class MangoUitls {
             mango_client.I80F48.fromNumber(1.5),
         );
 
-        let ixCacheRootBank = mango_client.makeCacheRootBankInstruction(MangoUitls.mango_programid,
-            this.mangoGroup,
-            this.mangoCache,
+        let ixCacheRootBank = mango_client.makeCacheRootBankInstruction(MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
+            mangoContext.mangoCache,
             [root_bank_address]);
 
-        let ixupdateRootBank = mango_client.makeUpdateRootBankInstruction(MangoUitls.mango_programid,
-            this.mangoGroup,
-            this.mangoCache,
+        let ixupdateRootBank = mango_client.makeUpdateRootBankInstruction(MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
+            mangoContext.mangoCache,
             root_bank_address,
             [node_bank_address]);
         
@@ -311,7 +314,7 @@ export class MangoUitls {
         return token.publicKey;
     }
 
-    async initOpenOrdersForAccount(mangoAccount : PublicKey, owner : web3.Keypair, token : TokenData) {
+    async initOpenOrdersForAccount(mangoContext: MangoContext, mangoAccount : PublicKey, owner : web3.Keypair, token : TokenData) {
 
         const space = OpenOrders.getLayout(dex_program).span;
         const lamports = await this.connection.getMinimumBalanceForRentExemption(space);
@@ -333,25 +336,25 @@ export class MangoUitls {
         ]);
         
         let ixCreateOpenOrders = mango_client.makeCreateSpotOpenOrdersInstruction(
-            MangoUitls.mango_programid,
-            this.mangoGroup,
+            MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
             mangoAccount,
             owner.publicKey,
             DEX_ID,
             openOrders.publicKey,
             token.market.address,
-            this.signerKey,
+            mangoContext.signerKey,
         )
 
         let ixInitOpenOrders = mango_client.makeInitSpotOpenOrdersInstruction (
-            MangoUitls.mango_programid,
-            this.mangoGroup,
+            MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
             mangoAccount,
             owner.publicKey,
             dex_program,
             openOrders.publicKey,
             token.market.address,
-            this.signerKey,
+            mangoContext.signerKey,
         );
 
         const transaction = new web3.Transaction();
@@ -371,17 +374,17 @@ export class MangoUitls {
         return openOrders.publicKey;
     }
 
-    async initOpenOrdersForAccountForAllTokens(mangoAccount : PublicKey, owner : web3.Keypair) {
+    async initOpenOrdersForAccountForAllTokens(mangoContext: MangoContext, mangoAccount : PublicKey, owner : web3.Keypair) {
         return await Promise.all(
-            this.tokens.map(x => this.initOpenOrdersForAccount(mangoAccount, owner, x))
+            mangoContext.tokens.map(x => this.initOpenOrdersForAccount(mangoContext, mangoAccount, owner, x))
         )
     }
 
-    async refreshTokenCache(tokenData : TokenData) {
+    async refreshTokenCache(mangoContext: MangoContext, tokenData : TokenData) {
         
-        let ixupdateRootBank = mango_client.makeUpdateRootBankInstruction(MangoUitls.mango_programid,
-            this.mangoGroup,
-            this.mangoCache,
+        let ixupdateRootBank = mango_client.makeUpdateRootBankInstruction(MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
+            mangoContext.mangoCache,
             tokenData.rootBank,
             [tokenData.nodeBank]);
         
@@ -399,11 +402,11 @@ export class MangoUitls {
         );
     }
 
-    async refreshRootBankCache() {
-        let ixCacheRootBank = mango_client.makeCacheRootBankInstruction(MangoUitls.mango_programid,
-            this.mangoGroup,
-            this.mangoCache,
-            this.tokens);
+    async refreshRootBankCache(mangoContext: MangoContext) {
+        let ixCacheRootBank = mango_client.makeCacheRootBankInstruction(MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
+            mangoContext.mangoCache,
+            mangoContext.tokens);
 
         const transaction = new web3.Transaction();
         transaction.add(ixCacheRootBank);
@@ -419,10 +422,10 @@ export class MangoUitls {
         );
     }
 
-    async refreshAllTokenCache() {
-        await this.refreshRootBankCache();
+    async refreshAllTokenCache(mangoContext: MangoContext) {
+        await this.refreshRootBankCache(mangoContext);
         await Promise.all(
-            this.tokens.map(x=> this.refreshTokenCache(x))
+            mangoContext.tokens.map(x=> this.refreshTokenCache(mangoContext, x))
         );
     }
 
@@ -466,14 +469,14 @@ export class MangoUitls {
         );
     }
 
-    async createSpotAccount(mangoAccount : PublicKey, owner : Keypair, tokenData: TokenData) : Promise<PublicKey> {
+    async createSpotAccount(mangoContext: MangoContext, mangoAccount : PublicKey, owner : Keypair, tokenData: TokenData) : Promise<PublicKey> {
         let marketIndex : anchor.BN = tokenData.marketIndex;
         const [spotOpenOrdersAccount, _bump] = await PublicKey.findProgramAddress(
                 [
                     mangoAccount.toBuffer(), 
                     marketIndex.toBuffer("le", 8), 
                     Buffer.from("OpenOrders"),
-                ], MangoUitls.mango_programid);
+                ], MangoUtils.mango_programid);
         
         const space = OpenOrders.getLayout(DEX_ID).span;
         //await this.createAccount(spotAccount, owner, DEX_ID, space);
@@ -489,26 +492,26 @@ export class MangoUitls {
         await this.processInstruction(ix1.instruction, [owner,ix1.account]);
 
         let ix2 = mango_client.makeCreateSpotOpenOrdersInstruction(
-            MangoUitls.mango_programid,
-            this.mangoGroup,
+            MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
             mangoAccount,
             owner.publicKey,
             DEX_ID,
             spotOpenOrdersAccount,
             tokenData.market.address,
-            this.signerKey,
+            mangoContext.signerKey,
         )
         await this.processInstruction(ix2, [owner]);
 
         let ix3 = mango_client.makeInitSpotOpenOrdersInstruction(
-            MangoUitls.mango_programid,
-            this.mangoGroup,
+            MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
             mangoAccount,
             owner.publicKey,
             DEX_ID,
             spotOpenOrdersAccount,
             tokenData.market.address,
-            this.signerKey,
+            mangoContext.signerKey,
         )
         await this.processInstruction(ix3, [owner]);
         
@@ -529,23 +532,23 @@ export class MangoUitls {
         return spotOpenOrdersAccount;
     }
 
-    async createSpotAccounts(mangoAccount : PublicKey, owner : Keypair,) : Promise<PublicKey[]> {
+    async createSpotAccounts(mangoContext: MangoContext, mangoAccount : PublicKey, owner : Keypair,) : Promise<PublicKey[]> {
         return await Promise.all(
-            this.tokens.map(x=> this.createSpotAccount(mangoAccount, owner, x))
+            mangoContext.tokens.map(x=> this.createSpotAccount(mangoContext, mangoAccount, owner, x))
         );
     }
 
-    async createUser(): Promise<User> {
+    public async addUser(mangoContext: MangoContext) {
         const user = web3.Keypair.generate();
         await this.connection.requestAirdrop(
             user.publicKey,
             web3.LAMPORTS_PER_SOL * 100);
 
-        const [acc, _bump] = await PublicKey.findProgramAddress([Buffer.from("mango_account"), user.publicKey.toBuffer()], MangoUitls.mango_programid);
+        const [acc, _bump] = await PublicKey.findProgramAddress([Buffer.from("mango_account"), user.publicKey.toBuffer()], MangoUtils.mango_programid);
         
         const ix = mango_client.makeInitMangoAccountInstruction(
-            MangoUitls.mango_programid,
-            this.mangoGroup,
+            MangoUtils.mango_programid,
+            mangoContext.mangoGroup,
             acc,
             user.publicKey,
         )
@@ -562,10 +565,10 @@ export class MangoUitls {
             { commitment: 'confirmed' },
         );
 
-        return {
+        mangoContext.users.push( {
             user,
             mangoAccountPk : acc,
-            spotOrders : await this.createSpotAccounts(acc, user),
-        }
+            spotOrders : await this.createSpotAccounts(mangoContext, acc, user),
+        } );
     }
 }
