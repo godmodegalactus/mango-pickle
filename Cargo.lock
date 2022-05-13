@@ -900,8 +900,6 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "fixed",
- "fixed-macro",
  "mango",
  "mango-common",
  "mango-macro",

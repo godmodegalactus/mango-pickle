@@ -23,14 +23,14 @@ describe("mango-pickle", () => {
   const mangoUtils = new MangoUtils(connection, owner, serumUtils, pythUtils);
   let mangoContext : MangoContext = null;
   it("Initialize Mango and add two users", async () => {
-      await connection.requestAirdrop(
+    const sig = await connection.requestAirdrop(
         owner.publicKey,
         anchor.web3.LAMPORTS_PER_SOL * 100,
     );
+    await connection.confirmTransaction(sig);
 
     mangoContext = await mangoUtils.createMangoContext();
-    mlog.console.log("Mango context created");
-    mlog.console.log(mangoContext);
+    mlog.log("Mango context created");
     await mangoUtils.addUser(mangoContext);
     await mangoUtils.addUser(mangoContext);
   });

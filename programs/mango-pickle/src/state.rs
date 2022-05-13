@@ -47,7 +47,7 @@ pub struct PickleGroup {
     // mango pool token infos
     pub tokens: [TokenInfo; 16],
     // token count
-    pub token_count_of_mango : usize,
+    pub token_count_of_mango : u8,
     // token pools to store liquidation tokens
     pub token_pools: [Pubkey; 16],
     padding : [u8; 256],
@@ -64,7 +64,7 @@ pub struct PickleUser {
     // associated mango account
     pub mango_account_pk: Pubkey,
     
-    pub tokens_locked_for_liquidation: [I48F80; 16],
+    pub tokens_locked_for_liquidation: [u64; 16],
 
     pub solana_locked_for_liquidation: u64,
 } 

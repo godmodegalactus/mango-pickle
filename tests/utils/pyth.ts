@@ -56,9 +56,9 @@ export interface Ema {
     numerator?: bigint;
     denominator?: bigint;
 }
-const writer_programId: PublicKey = new PublicKey("37kmCqYKw41NJxMFVDT5HanZGhwKBQTQJD5hfiYBML7Z");
 export class PythUtils {
 
+    public static programId: PublicKey = new PublicKey("37kmCqYKw41NJxMFVDT5HanZGhwKBQTQJD5hfiYBML7Z");
     conn: Connection;
     authority: Keypair;
 
@@ -72,7 +72,7 @@ export class PythUtils {
                 newAccountPubkey: address.publicKey,
                 lamports,
                 space: size,
-                programId: writer_programId,
+                programId : PythUtils.programId,
             }))
 
         transaction.feePayer = this.authority.publicKey;
@@ -99,7 +99,7 @@ export class PythUtils {
         const transaction = new anchor.web3.Transaction().add(
             new anchor.web3.TransactionInstruction({
                 keys,
-                programId: writer_programId,
+                programId: PythUtils.programId,
                 data
             }
             ),

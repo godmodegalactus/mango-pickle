@@ -4,7 +4,6 @@ import {
     Token,
     TOKEN_PROGRAM_ID,
     AccountLayout as TokenAccountLayout,
-    u64,
 } from "@solana/spl-token";
 import {
     Account,
@@ -17,13 +16,13 @@ import {
     Transaction,
     TransactionInstruction,
 } from "@solana/web3.js";
-import { Pyth } from "./pyth";
+import { PythUtils } from "./pyth";
 import mlog from "mocha-logger";
 
 export class TestUtils {
-    public static readonly pythProgramId = Pyth.programId;
+    public static readonly pythProgramId = PythUtils.programId;
 
-    public pyth: Pyth;
+    public pyth: PythUtils;
 
     private conn: Connection;
     private authority: Keypair;
@@ -33,7 +32,7 @@ export class TestUtils {
     constructor(conn: Connection, authority: Keypair) {
         this.conn = conn;
         this.authority = authority;
-        this.pyth = new Pyth(conn, authority);
+        this.pyth = new PythUtils(conn, authority);
     }
 
     async createAccount( owner : Keypair, pid : PublicKey, space: number): Promise<Keypair> {
