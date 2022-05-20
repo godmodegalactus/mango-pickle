@@ -1,5 +1,4 @@
 import * as anchor from '@project-serum/anchor';
-import { Program } from '@project-serum/anchor';
 import { Market, OpenOrders } from "@project-serum/serum";
 import * as mango_client from '@blockworks-foundation/mango-client';
 import * as web3 from '@solana/web3.js'
@@ -11,8 +10,6 @@ import {
   MintLayout,
 } from "@solana/spl-token";
 
-import { assert } from "chai";
-import mlog from 'mocha-logger';
 import {
   PublicKey,
   Keypair,
@@ -22,6 +19,9 @@ import {
 } from '@solana/web3.js';
 import {SerumUtils, DEX_ID,} from "./serum";
 import {PythUtils} from "./pyth";
+import { TestUtils } from './test_utils';
+import * as mlog from "mocha-logger"
+import { BN } from 'bn.js';
 
 const bs58 = require("bs58");
 const dex_program = DEX_ID;
@@ -61,26 +61,24 @@ export class MangoUtils {
 
     serumUtils : SerumUtils;
     pythUtils : PythUtils;
+    testUtils : TestUtils;
+    mangoClient : mango_client.MangoClient;
+
     constructor (connection : web3.Connection, 
         authority : web3.Keypair,
         serumUtils : SerumUtils,
-        pythUtils : PythUtils) {
+        pythUtils : PythUtils,
+        testUtils : TestUtils) {
         this.connection = connection;
         this.authority = authority;
         this.serumUtils = serumUtils;
         this.pythUtils = pythUtils;
-    }
-
-    async createTokenAccountForMint(mint: PublicKey, payer: Keypair, owner: PublicKey) : Promise<PublicKey> {
-        return splToken.createAccount(this.connection,
-            payer,
-            mint,
-            owner,
-            Keypair.generate())
+        this.testUtils = testUtils;
+        this.mangoClient = new mango_client.MangoClient(this.connection, MangoUtils.mango_programid);
     }
 
     async createTokenAccount(token: TokenData, payer: Keypair, owner: PublicKey) : Promise<PublicKey> {
-        return this.createTokenAccountForMint(token.mint, payer, owner);
+        return this.testUtils.createTokenAccount(token.mint, payer, owner);
     }
 
     async initializeTokens(context: MangoContext) {
@@ -107,7 +105,7 @@ export class MangoUtils {
             6,);
     }
 
-    async addNewToken(context: MangoContext) {
+    public async addNewToken(context: MangoContext) {
         let tokenData : TokenData = { 
             mint: await splToken.createMint(
                     this.connection,
@@ -181,9 +179,15 @@ export class MangoUtils {
 
         //const [signer, nonce] = await web3.PublicKey.findProgramAddress([group_address.toBuffer()], MangoUtils.mango_programid);
         let usdc_vault = await this.createTokenAccount(mangoContext.quoteToken, this.authority, signerKey);
+        splToken.mintTo(this.connection, this.authority, mangoContext.quoteToken.mint, usdc_vault, this.authority, 1000000 * 1000000);
+
         let insurance_vault = await this.createTokenAccount(mangoContext.quoteToken, this.authority, signerKey);
+        splToken.mintTo(this.connection, this.authority, mangoContext.quoteToken.mint, insurance_vault, this.authority, 1000000 * 1000000);
+
         let fee_vault = await this.createTokenAccount(mangoContext.quoteToken, this.authority, TOKEN_PROGRAM_ID);
-        let msrm_vault = await this.createTokenAccountForMint(mangoContext.MSRM, this.authority, signerKey);
+        splToken.mintTo(this.connection, this.authority, mangoContext.quoteToken.mint, fee_vault, this.authority, 1000000 * 1000000);
+
+        let msrm_vault = await this.testUtils.createTokenAccount(mangoContext.MSRM, this.authority, signerKey);
         mangoContext.quoteToken.rootBank = root_bank_address;
         mangoContext.quoteToken.nodeBank = node_bank_address;
         
@@ -230,6 +234,7 @@ export class MangoUtils {
 
     async initSpotMarket(mangoContext: MangoContext, tokendata : TokenData) : Promise<PublicKey> {
         const mint = tokendata.mint;
+
         let oracle = await this.pythUtils.createPriceAccount();
         // temp update oracle price to initate pyth oracle
         await this.pythUtils.updatePriceAccount(oracle, {
@@ -239,6 +244,7 @@ export class MangoUtils {
             conf: 1000n,
             },
         });
+
         let market = await this.serumUtils.createMarket({
             baseToken : mint,
             quoteToken: mangoContext.quoteToken.mint,
@@ -246,9 +252,11 @@ export class MangoUtils {
             quoteLotSize : 1000,
             feeRateBps : 0,
         });
+
         let root_bank_address = await this.createAccountForMango(mango_client.RootBankLayout.span);
         let node_bank_address = await this.createAccountForMango(mango_client.NodeBankLayout.span);
-        let vault = await this.createTokenAccountForMint( mint, this.authority, mangoContext.signerKey);
+
+        let vault = await this.testUtils.createTokenAccount( mint, this.authority, mangoContext.signerKey);
 
         tokendata.nodeBank = node_bank_address;
         tokendata.rootBank = root_bank_address;
@@ -275,6 +283,7 @@ export class MangoUtils {
                 { commitment: 'confirmed' },
             );
         }
+
         let add_spot_ix = mango_client.makeAddSpotMarketInstruction(
             MangoUtils.mango_programid,
             mangoContext.mangoGroup,
@@ -304,7 +313,7 @@ export class MangoUtils {
             mangoContext.mangoCache,
             root_bank_address,
             [node_bank_address]);
-        
+
         const transaction = new web3.Transaction();
         transaction.add(add_spot_ix);
         transaction.add(ixCacheRootBank);
@@ -320,72 +329,6 @@ export class MangoUtils {
             { commitment: 'confirmed' },
         );
         return mint;
-    }
-
-    async initOpenOrdersForAccount(mangoContext: MangoContext, mangoAccount : PublicKey, owner : web3.Keypair, token : TokenData) {
-
-        const space = OpenOrders.getLayout(dex_program).span;
-        const lamports = await this.connection.getMinimumBalanceForRentExemption(space);
-
-        const openOrders = new Keypair();
-        const trans = new Transaction().add(
-            SystemProgram.createAccount({
-                fromPubkey: owner.publicKey,
-                newAccountPubkey: openOrders.publicKey,
-                programId: DEX_ID,
-                lamports,
-                space,
-            })
-        );
-
-        await sendAndConfirmTransaction(this.connection, trans, [
-            owner,
-            openOrders,
-        ]);
-        
-        let ixCreateOpenOrders = mango_client.makeCreateSpotOpenOrdersInstruction(
-            MangoUtils.mango_programid,
-            mangoContext.mangoGroup,
-            mangoAccount,
-            owner.publicKey,
-            DEX_ID,
-            openOrders.publicKey,
-            token.market.address,
-            mangoContext.signerKey,
-        )
-
-        let ixInitOpenOrders = mango_client.makeInitSpotOpenOrdersInstruction (
-            MangoUtils.mango_programid,
-            mangoContext.mangoGroup,
-            mangoAccount,
-            owner.publicKey,
-            dex_program,
-            openOrders.publicKey,
-            token.market.address,
-            mangoContext.signerKey,
-        );
-
-        const transaction = new web3.Transaction();
-        transaction.add(ixCreateOpenOrders);
-        transaction.add(ixInitOpenOrders);
-        transaction.feePayer = this.authority.publicKey;
-        let hash = await this.connection.getRecentBlockhash();
-        transaction.recentBlockhash = hash.blockhash;
-        // Sign transaction, broadcast, and confirm
-        await web3.sendAndConfirmTransaction(
-            this.connection,
-            transaction,
-            [owner],
-            { commitment: 'confirmed' },
-        );
-
-        return openOrders.publicKey;
-    }
-
-    async initOpenOrdersForAccountForAllTokens(mangoContext: MangoContext, mangoAccount : PublicKey, owner : web3.Keypair) {
-        return await Promise.all(
-            mangoContext.tokens.map(x => this.initOpenOrdersForAccount(mangoContext, mangoAccount, owner, x))
-        )
     }
 
     async refreshTokenCache(mangoContext: MangoContext, tokenData : TokenData) {
@@ -466,19 +409,38 @@ export class MangoUtils {
         const transaction = new web3.Transaction();
         transaction.add(ix);
         transaction.feePayer = this.authority.publicKey;
+        signers.push(this.authority);
         let hash = await this.connection.getRecentBlockhash();
         transaction.recentBlockhash = hash.blockhash;
         // Sign transaction, broadcast, and confirm
+        try{
         await web3.sendAndConfirmTransaction(
             this.connection,
             transaction,
             signers,
             { commitment: 'confirmed' },
         );
+        }
+        catch(ex)
+        { 
+            const ext = ex as anchor.web3.SendTransactionError;
+            if (ext != null) {
+                mlog.log("---------------error----------------------------------")
+                mlog.log(ext.message)
+                if (ext.logs != null)
+                {
+                    mlog.log(ext.logs.join(", "));
+                }
+            }
+            throw ex;
+        }
     }
 
     async createSpotAccount(mangoContext: MangoContext, mangoAccount : PublicKey, owner : Keypair, tokenData: TokenData) : Promise<PublicKey> {
-        let marketIndex : anchor.BN = new anchor.BN(tokenData.marketIndex);
+
+        let mangoGroup = await this.mangoClient.getMangoGroup(mangoContext.mangoGroup);
+        const marketIndex = new BN( mangoGroup.tokens.findIndex(x=> x.mint.equals(tokenData.mint)) );
+
         const [spotOpenOrdersAccount, _bump] = await PublicKey.findProgramAddress(
                 [
                     mangoAccount.toBuffer(), 
@@ -487,17 +449,8 @@ export class MangoUtils {
                 ], MangoUtils.mango_programid);
         
         const space = OpenOrders.getLayout(DEX_ID).span;
-        //await this.createAccount(spotAccount, owner, DEX_ID, space);
+        //await this.createAccount( spotOpenOrdersAccount, owner, DEX_ID, space);
         const lamports = await this.connection.getMinimumBalanceForRentExemption(space);
-        
-        let ix1 = await mango_client.createAccountInstruction(
-            this.connection,
-            owner.publicKey,
-            space,
-            DEX_ID,
-            lamports,
-          );
-        await this.processInstruction(ix1.instruction, [owner,ix1.account]);
 
         let ix2 = mango_client.makeCreateSpotOpenOrdersInstruction(
             MangoUtils.mango_programid,
@@ -511,33 +464,14 @@ export class MangoUtils {
         )
         await this.processInstruction(ix2, [owner]);
 
-        let ix3 = mango_client.makeInitSpotOpenOrdersInstruction(
-            MangoUtils.mango_programid,
-            mangoContext.mangoGroup,
-            mangoAccount,
-            owner.publicKey,
-            DEX_ID,
-            spotOpenOrdersAccount,
-            tokenData.market.address,
-            mangoContext.signerKey,
-        )
-        await this.processInstruction(ix3, [owner]);
-        
-        const transaction = new web3.Transaction();
-        transaction.add(ix1.instruction);
-        transaction.add(ix2);
-        transaction.feePayer = this.authority.publicKey;
-        let hash = await this.connection.getRecentBlockhash();
-        transaction.recentBlockhash = hash.blockhash;
-        // Sign transaction, broadcast, and confirm
-        await web3.sendAndConfirmTransaction(
-            this.connection,
-            transaction,
-            [owner, ix1.account],
-            { commitment: 'confirmed' },
-        );
-
         return spotOpenOrdersAccount;
+    }
+    async startLogging() {
+        let logsCallback = (logs: anchor.web3.Logs, context: anchor.web3.Context) => {
+            mlog.log( logs.logs.join("\n") )
+            mlog.log( "error " + logs.err.toString() )
+        };
+        this.connection.onLogs("all", logsCallback)
     }
 
     async createSpotAccounts(mangoContext: MangoContext, mangoAccount : PublicKey, owner : Keypair,) : Promise<PublicKey[]> {
@@ -548,34 +482,29 @@ export class MangoUtils {
 
     public async addUser(mangoContext: MangoContext) {
         const user = web3.Keypair.generate();
-        await this.connection.requestAirdrop(
+        await this.connection.confirmTransaction( await this.connection.requestAirdrop(
             user.publicKey,
-            web3.LAMPORTS_PER_SOL * 100);
-        const account_num = new anchor.BN(0)
-        const [acc, _bump] = await PublicKey.findProgramAddress([mangoContext.mangoGroup.toBuffer(), user.publicKey.toBuffer(), account_num.toBuffer("le", 8)], MangoUtils.mango_programid);
+            web3.LAMPORTS_PER_SOL * 100));
 
+        const space = mango_client.MangoAccountLayout.span;
+        const lamports = await this.connection.getMinimumBalanceForRentExemption(space);
+
+        const account_num = new anchor.BN(0)
+        const [mangoAccount, _bump] = await PublicKey.findProgramAddress([mangoContext.mangoGroup.toBuffer(), user.publicKey.toBuffer(), account_num.toBuffer("le", 8)], MangoUtils.mango_programid);
         const ixc = mango_client.makeCreateMangoAccountInstruction(
             MangoUtils.mango_programid,
             mangoContext.mangoGroup,
-            acc,
+            mangoAccount,
             user.publicKey,
             account_num,
             user.publicKey,
         )
+        await this.processInstruction(ixc, [user]);
         
-        const ixi = mango_client.makeInitMangoAccountInstruction(
-            MangoUtils.mango_programid,
-            mangoContext.mangoGroup,
-            acc,
-            user.publicKey,
-        )
-        this.processInstruction(ixc, [user]);
-        this.processInstruction(ixi, [user]);
-
         mangoContext.users.push( {
             user,
-            mangoAccountPk : acc,
-            spotOrders : await this.createSpotAccounts(mangoContext, acc, user),
+            mangoAccountPk : mangoAccount,
+            spotOrders : await this.createSpotAccounts(mangoContext, mangoAccount, user),
         } );
     }
 }

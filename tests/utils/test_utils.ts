@@ -1,7 +1,8 @@
 import { Wallet, BN } from "@project-serum/anchor";
 import {
     NATIVE_MINT,
-    Token,
+    createAccount,
+    createMint,
     TOKEN_PROGRAM_ID,
     AccountLayout as TokenAccountLayout,
 } from "@solana/spl-token";
@@ -75,32 +76,31 @@ export class TestUtils {
         });
     }
 
+    
+    async createTokenAccount(mint: PublicKey, payer: Keypair, owner: PublicKey) : Promise<PublicKey> {
+        return createAccount(this.conn,
+            payer,
+            mint,
+            owner,
+            Keypair.generate())
+    }
+
     async createToken(
         decimals: number,
         authority: PublicKey = this.authority.publicKey
-    ): Promise<Token> {
-        const token = await Token.createMint(
+    ): Promise<PublicKey> {
+        const token = await createMint(
             this.conn,
             this.authority,
             authority,
             authority,
             decimals,
-            TOKEN_PROGRAM_ID
+            anchor.web3.TOKEN_PROGRAM_ID
         );
 
         return token;
     }
 
-    async createNativeToken() {
-        const token = new Token(
-            this.conn,
-            NATIVE_MINT,
-            TOKEN_PROGRAM_ID,
-            this.authority
-        );
-
-        return token;
-    }
 
     async createWallet(lamports: number): Promise<Keypair> {
         const wallet = Keypair.generate();
@@ -114,71 +114,6 @@ export class TestUtils {
 
         await this.sendAndConfirmTransaction(fundTx, [this.authority]);
         return wallet;
-    }
-
-    async createTokenAccount(
-        token: Token,
-        owner: PublicKey | HasPublicKey,
-        amount: BN
-    ): Promise<PublicKey> {
-        if ("publicKey" in owner) {
-            owner = owner.publicKey;
-        }       
-        if (token.publicKey == NATIVE_MINT) {
-            const account = await Token.createWrappedNativeAccount(
-                this.conn,
-                TOKEN_PROGRAM_ID,
-                owner,
-                this.authority,
-                amount.toNumber()
-            );
-            return account;
-        } else {
-            const account = await token.createAccount(owner);
-            if (amount.toNumber() > 0) {
-                await token.mintTo(account, this.authority, [], amount.toNumber());
-            }
-            return account;
-        }
-    }
-
-    async createTokenAccountTx(
-        token: Token,
-        owner: PublicKey | HasPublicKey,
-        amount: number
-    ): Promise<[PublicKey, Transaction]> {
-        if ("publicKey" in owner) {
-            owner = owner.publicKey;
-        }
-
-        let lamportBalanceNeeded =
-            await Token.getMinBalanceRentForExemptAccount(this.conn);
-
-        if (token.publicKey == NATIVE_MINT) {
-            lamportBalanceNeeded += amount;
-        }
-
-        const newAccount = Keypair.generate();
-        const transaction = this.transaction().add(
-            SystemProgram.createAccount(
-                toPublicKeys({
-                    fromPubkey: this.authority,
-                    newAccountPubkey: newAccount,
-                    lamports: lamportBalanceNeeded,
-                    space: TokenAccountLayout.span,
-                    programId: TOKEN_PROGRAM_ID,
-                })
-            ),
-            Token.createInitAccountInstruction(
-                TOKEN_PROGRAM_ID,
-                token.publicKey,
-                newAccount.publicKey,
-                owner
-            )
-        );
-
-        transaction.sign(newAccount);
-        return [newAccount.publicKey, transaction];
     }
 
     async findProgramAddress(

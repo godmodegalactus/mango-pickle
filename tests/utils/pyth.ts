@@ -9,6 +9,8 @@ import {
     sendAndConfirmTransaction,
 } from "@solana/web3.js";
 
+import { Program } from "@project-serum/anchor";
+
 import * as mlog from "mocha-logger"
 
 const PRICE_ACCOUNT_SIZE = 3312;
@@ -89,12 +91,12 @@ export class PythUtils {
     }
 
     async store(account: Keypair, offset: number, input: Buffer) {
-        const inx = Buffer.from([235, 116, 91, 200, 206, 170, 144, 120]);
+
         let keys = [
             { isSigner: true, isWritable: true, pubkey: account.publicKey },
         ];
         let offsetBN = new anchor.BN(offset); 
-        const data = Buffer.concat([inx, offsetBN.toBuffer("le"), input]);
+        const data = Buffer.concat([offsetBN.toBuffer("le", 8), input]);
         
         const transaction = new anchor.web3.Transaction().add(
             new anchor.web3.TransactionInstruction({
@@ -111,7 +113,7 @@ export class PythUtils {
         const signature = await anchor.web3.sendAndConfirmTransaction(
             this.conn,
             transaction,
-            [this.authority],
+            [this.authority, account],
             { commitment: 'confirmed' },
         );
     }

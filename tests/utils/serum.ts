@@ -7,7 +7,7 @@ import {
     TransactionInstruction,
 } from "@solana/web3.js";
 import { BN } from "@project-serum/anchor";
-import { Token, TOKEN_PROGRAM_ID, AccountLayout as TokenAccountLayout } from "@solana/spl-token";
+import * as splToken from "@solana/spl-token";
 import { TestUtils, toPublicKeys } from "./test_utils";
 import mlog from "mocha-logger";
 
@@ -15,9 +15,12 @@ export const DEX_ID = new PublicKey("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFi
 
 export class SerumUtils {
     private utils: TestUtils;
+    private authority: Keypair;
 
-    constructor(utils: TestUtils) {
+    constructor(utils: TestUtils,
+        authority: Keypair) {
         this.utils = utils;
+        this.authority = authority;
     }
 
     private async createAccountIx(
@@ -55,13 +58,13 @@ export class SerumUtils {
         const [baseVault, quoteVault] = await Promise.all([
             this.utils.createTokenAccount(
                 info.baseToken,
-                vaultOwner,
-                new BN(0)
+                this.authority,
+                vaultOwner
             ),
             this.utils.createTokenAccount(
                 info.quoteToken,
-                vaultOwner,
-                new BN(0)
+                this.authority,
+                vaultOwner
                 ),
             ]);
         
@@ -76,8 +79,8 @@ export class SerumUtils {
                     asks,
                     baseVault,
                     quoteVault,
-                    baseMint: info.baseToken.publicKey,
-                    quoteMint: info.quoteToken.publicKey,
+                    baseMint: info.baseToken,
+                    quoteMint: info.quoteToken,
                     baseLotSize: new BN(info.baseLotSize),
                     quoteLotSize: new BN(info.quoteLotSize),
                     feeRateBps: info.feeRateBps,
@@ -101,7 +104,7 @@ export class SerumUtils {
 
     public async createMarketMaker(
         lamports: number,
-        tokens: [Token, BN][]
+        tokens: [PublicKey, BN][]
     ): Promise<MarketMaker> {
         const account = await this.utils.createWallet(lamports);
         const tokenAccounts = {};
@@ -109,17 +112,17 @@ export class SerumUtils {
         for (const [token, amount] of tokens) {
             const publicKey = await this.utils.createTokenAccount(
                 token,
-                account,
-                amount
+                this.authority,
+                account.publicKey,
             );
-
-            tokenAccounts[token.publicKey.toBase58()] = publicKey;
+            splToken.mintTo( this.utils.connection(), this.authority, token, publicKey, this.authority, amount.toNumber())
+            tokenAccounts[token.toBase58()] = publicKey;
         }
 
         return new MarketMaker(this.utils, account, tokenAccounts);
     }
 
-    public async createAndMakeMarket(baseToken: Token, quoteToken: Token, marketPrice: number, exp : number): Promise<Market> {
+    public async createAndMakeMarket(baseToken: PublicKey, quoteToken: PublicKey, marketPrice: number, exp : number): Promise<Market> {
         const market = await this.createMarket({
             baseToken,
             quoteToken,
@@ -167,8 +170,8 @@ export class SerumUtils {
 }
 
 export interface CreateMarketInfo {
-    baseToken: Token;
-    quoteToken: Token;
+    baseToken: PublicKey;
+    quoteToken: PublicKey;
     baseLotSize: number;
     quoteLotSize: number;
     feeRateBps: number;

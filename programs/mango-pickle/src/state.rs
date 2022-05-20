@@ -18,7 +18,12 @@ pub struct MetaData {
 
 impl MetaData {
     pub fn new(data_type: DataType, version: u8, is_initialized: bool) -> Self {
-        Self { data_type: data_type as u8, version, is_initialized, extra_info: [0; 5] }
+        Self {
+            data_type: data_type as u8,
+            version,
+            is_initialized,
+            extra_info: [0; 5],
+        }
     }
 }
 
@@ -34,25 +39,23 @@ pub struct TokenInfo {
 // This is group for MangoPickle
 #[account(zero_copy)]
 pub struct PickleGroup {
-
     pub meta_data: MetaData,
     // program id for mango
-    pub mango_program_id : Pubkey,
+    pub mango_program_id: Pubkey,
     // Associated for mango
-    pub mango_group : Pubkey,
+    pub mango_group: Pubkey,
     //mango group admin
-    pub admin_ai : Pubkey,
+    pub admin_ai: Pubkey,
     // liquidation in percentage with 6 digits of decimals
-    pub liquidation_deposit : u32,
+    pub liquidation_deposit: u32,
     // mango pool token infos
     pub tokens: [TokenInfo; 16],
     // token count
-    pub token_count_of_mango : u8,
+    pub token_count_of_mango: u8,
     // token pools to store liquidation tokens
     pub token_pools: [Pubkey; 16],
-    padding : [u8; 256],
+    padding: [u8; 256],
 }
-
 
 #[account(zero_copy)]
 pub struct PickleUser {
@@ -63,8 +66,8 @@ pub struct PickleUser {
     pub owner_pk: Pubkey,
     // associated mango account
     pub mango_account_pk: Pubkey,
-    
+
     pub tokens_locked_for_liquidation: [u64; 16],
 
     pub solana_locked_for_liquidation: u64,
-} 
+}
