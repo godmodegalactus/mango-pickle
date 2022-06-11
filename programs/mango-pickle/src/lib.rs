@@ -12,7 +12,7 @@ mod errors;
 use errors::*;
 
 use mango::state::MangoGroup;
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("6Mt6iS3BFCBQmQkgq9f7uqthGQUTMzTioxvrxTUSPh6q");
 
 #[program]
 pub mod mango_pickle {
@@ -29,6 +29,12 @@ pub mod mango_pickle {
         pickle_group.mango_group = *accounts.mango_group.key;
         pickle_group.mango_program_id = *accounts.mango_program_id.key;
         pickle_group.liquidation_deposit = liquidation_deposit;
+        pickle_group.solana_vault = accounts.solana_vault.key();
+        pickle_group.locked_sol_multiplier_to_incentivize_keeper = 10_000_000;
+        
+        let (pda, _nonce) = Pubkey::find_program_address( &[PICKLE_AUTHORITY, accounts.pickle_group_ai.key().as_ref()], ctx.program_id);
+        assert!(pda == accounts.pickle_authority.key());
+        pickle_group.pickle_authority_pk = accounts.pickle_authority.key();
 
         let mango_group_res =
             MangoGroup::load_checked(&accounts.mango_group, &accounts.mango_program_id.key());
@@ -52,7 +58,7 @@ pub mod mango_pickle {
             pickle_group.tokens[i].root_bank = token.root_bank;
             pickle_group.tokens[i].decimals = token.decimals;
         }
-        solana_program::msg!("token count : {}", token_counts);
+        msg!("token count : {}", token_counts);
 
         require!(
             ctx.remaining_accounts.len() == token_counts,

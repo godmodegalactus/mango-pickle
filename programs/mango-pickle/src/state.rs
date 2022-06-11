@@ -1,5 +1,7 @@
 use crate::*;
 
+//TOKEN_COUNT should be replaced by count
+
 #[derive(AnchorSerialize, AnchorDeserialize, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum DataType {
@@ -49,11 +51,21 @@ pub struct PickleGroup {
     // liquidation in percentage with 6 digits of decimals
     pub liquidation_deposit: u32,
     // mango pool token infos
-    pub tokens: [TokenInfo; 16],
+    pub tokens: [TokenInfo; 16], //TOKEN_COUNT
     // token count
     pub token_count_of_mango: u8,
     // token pools to store liquidation tokens
-    pub token_pools: [Pubkey; 16],
+    pub token_pools: [Pubkey; 16], //TOKEN_COUNT
+    // number of users registered
+    pub num_users: u64,
+    // number of tokens locked
+    pub value_locked_in_liquidation_pools: [u64; 16], //TOKEN_COUNT
+    // solana vault for group
+    pub solana_vault: Pubkey,
+    // multiplier of transaction fees kept to incentivize keeper decimal at 4 digits
+    pub locked_sol_multiplier_to_incentivize_keeper: u32,
+    // pickle authority
+    pub pickle_authority_pk : Pubkey,
     padding: [u8; 256],
 }
 
@@ -66,8 +78,8 @@ pub struct PickleUser {
     pub owner_pk: Pubkey,
     // associated mango account
     pub mango_account_pk: Pubkey,
-
-    pub tokens_locked_for_liquidation: [u64; 16],
-
-    pub solana_locked_for_liquidation: u64,
+    // each token locked by user for liquidation
+    pub tokens_locked_for_liquidation: [u64; 16], //TOKEN_COUNT
+    // solana will locked in user for incentivising keepers
+    pub solana_locked_for_transaction_fees: u64,
 }
